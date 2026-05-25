@@ -1,0 +1,39 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+*.egg
+build/
+dist/
+.eggs/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Test / coverage caches
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Editor / OS
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+
+# Claude Code local (machine-specific) settings
+.claude/settings.local.json
+
+# CODESYS MCP runtime workdir artifacts (must never be committed)
+commands/
+results/
+_scripts/
+_scripts_*/
+*.log
+watcher.ready
+watcher.heartbeat
+STOP
+dev.flag
