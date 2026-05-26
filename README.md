@@ -205,7 +205,7 @@ The first call from Claude spawns the IDE (visible by default; pass
 
 **Running Claude and CODESYS on different machines?** You can drive a CODESYS IDE
 on another PC over SSH — and still watch the IDE on that PC's screen while Claude
-operates it. See [REMOTE.md](REMOTE.md).
+operates it. See [Remote access over SSH](#remote-access-over-ssh) below.
 
 ## Example: a first session
 
@@ -237,6 +237,44 @@ window. More things you can just ask for:
   `project.mirror_export`.
 
 The full list of 82 tools is in [Tools](#tools) below.
+
+## Remote access over SSH
+
+You can run **Claude on one PC and CODESYS on another** on the same network.
+MCP's stdio transport means the client launches the server as a subprocess — so
+set that command to `ssh`, and it runs the server on the remote machine and pipes
+the JSON-RPC stream back:
+
+```json
+{
+  "mcpServers": {
+    "codesys": {
+      "command": "ssh",
+      "args": ["<user>@<codesys-pc>", "C:\\mcp\\codesys-mcp-stdio.cmd"]
+    }
+  }
+}
+```
+
+The server, launcher, and config are otherwise unchanged — SSH just carries the
+same stdio stream, and adds the authentication + encryption the local file IPC
+deliberately lacks. Three things to know:
+
+- **Seeing the IDE.** A process launched by SSH runs in a non-interactive Windows
+  session, so a CODESYS it *spawns* is invisible on the remote screen. To watch
+  the IDE there, start it yourself first with the `start-codesys-visible` helper;
+  the server then **adopts** that running instance instead of spawning a hidden
+  one. (Don't need to see it? Add `--headless`.)
+- **Authentication.** Use an SSH **key** — the headless subprocess can't answer a
+  password prompt. And no `-t`/`-tt` in the `args`: a forced TTY corrupts the
+  JSON-RPC stream.
+- **Security.** This exposes live PLC control to a remote machine, so keep it on a
+  private network or VPN, behind key auth.
+
+Editable launcher templates are in
+[`examples/remote-ssh/`](examples/remote-ssh/), and the full walkthrough —
+enabling OpenSSH, key setup, the day-to-day flow, and troubleshooting — is in
+**[REMOTE.md](REMOTE.md)**.
 
 ## Environment variables
 
