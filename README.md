@@ -146,6 +146,19 @@ Add to `%APPDATA%\Claude\claude_desktop_config.json`:
 }
 ```
 
+**Command-line arguments** (pass these in the `args` list):
+
+| Argument | Default | Purpose |
+|---|---|---|
+| `--workdir <dir>` | `%TEMP%\mcptoolkit-for-codesys` | The IPC mailbox folder (`commands/` + `results/`). |
+| `--sp <n>` | highest installed | Pin a CODESYS service pack, e.g. `--sp 22`. |
+| `--headless` | off (IDE visible) | Launch CODESYS with `--noUI`. |
+| `--log-level <lvl>` | `INFO` | `DEBUG` / `INFO` / `WARNING` / `ERROR`. |
+
+Each argument also has an `MCPTOOLKIT_*` environment-variable equivalent (see
+[Environment variables](#environment-variables) below and
+[docs/configuration.md](docs/configuration.md) for the full reference).
+
 The first call from Claude spawns the IDE (visible by default; pass
 `--headless` to launch with `--noUI`).
 
