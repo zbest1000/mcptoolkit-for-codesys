@@ -144,6 +144,10 @@ Add to `%APPDATA%\Claude\claude_desktop_config.json`:
 The first call from Claude spawns the IDE (visible by default; pass
 `--headless` to launch with `--noUI`).
 
+**Running Claude and CODESYS on different machines?** You can drive a CODESYS IDE
+on another PC over SSH — and still watch the IDE on that PC's screen while Claude
+operates it. See [REMOTE.md](REMOTE.md).
+
 ## Environment variables
 
 | Variable | Purpose |
