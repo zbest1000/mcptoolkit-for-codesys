@@ -7,6 +7,11 @@ manage libraries, and log into a live PLC to read/write/force variables.
 
 > **New to this? Start with the [Setup Guide](SETUP.md)** — a plain-English,
 > step-by-step install that assumes no programming experience.
+>
+> **Want to understand how it works?** The [`docs/`](docs/) folder explains each
+> part in plain language — [concepts](docs/concepts.md), the
+> [watch page](docs/dashboard.md), [reliability](docs/reliability.md),
+> [configuration](docs/configuration.md), and [security](docs/security.md).
 
 Status: **0.2.1 — verified end-to-end on SP22 Patch 1.** Project lifecycle,
 POU/DUT/GVL + methods/properties, build, device add/update, library
