@@ -1,6 +1,6 @@
 [project]
 name = "mcptoolkit-for-codesys"
-version = "0.2.1"
+version = "0.2.2"
 description = "MCP toolkit for CODESYS 3.5 SP22 — drives the IDE via its Python ScriptEngine."
 readme = "README.md"
 requires-python = ">=3.11"

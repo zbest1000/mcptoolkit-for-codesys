@@ -13,7 +13,7 @@ manage libraries, and log into a live PLC to read/write/force variables.
 > [watch page](docs/dashboard.md), [reliability](docs/reliability.md),
 > [configuration](docs/configuration.md), and [security](docs/security.md).
 
-Status: **0.2.1 — verified end-to-end on SP22 Patch 1.** Project lifecycle,
+Status: **0.2.2 — verified end-to-end on SP22 Patch 1.** Project lifecycle,
 POU/DUT/GVL + methods/properties, build, device add/update, library
 add/diagnose/auto-remediate, and the **full online cycle** (login → run → read
 live values → write → stop → logout) all work against a real soft PLC.

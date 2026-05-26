@@ -1,13 +1,17 @@
 # Changes
 
-## [Unreleased]
+## 0.2.2
+
+Documentation, release tooling, and CI. No runtime/behavior change.
 
 - Docs: a plain-English `docs/` set (concepts, the dashboard watch page,
   reliability, configuration, security), a remote-over-SSH guide (`REMOTE.md`)
   with launcher templates under `examples/remote-ssh/`, and a `RELEASING.md`
-  process guide.
+  release-process guide.
 - CI: a `release.yml` workflow that builds and publishes the wheel + sdist when a
   `v*` tag is pushed.
+- Fixed host tests that were silently coupled to Windows (hardcoded `\` path
+  separators and a `C:\` root) so the Linux CI matrix (3.11/3.12/3.13) is green.
 
 ## 0.2.1
 
