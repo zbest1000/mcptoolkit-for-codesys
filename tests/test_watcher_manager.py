@@ -7,6 +7,7 @@ on currently-supported SP versions.
 """
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import pytest
@@ -33,10 +34,15 @@ def _make_entry(
             "KeyString": "CODESYS 3.5 SP{} ({} bit)".format(sp, bitness),
             "VersionString": "Patch {}".format(patch),
         },
-        "InstallationPath": "{}\\CODESYS".format(install_root),
+        # Build paths OS-natively so the tmp_path dirs the tests create line up
+        # on both Windows and Linux CI. Hardcoded "\\" separators only match on
+        # Windows, which silently made these tests depend on a real CODESYS
+        # install (and fail on Linux).
+        "InstallationPath": os.path.join(install_root, "CODESYS"),
         "ProfileFiles": [
-            "{}\\CODESYS\\Profiles\\CODESYS V3.5 SP{} Patch {}.profile.xml".format(
-                install_root, sp, patch
+            os.path.join(
+                install_root, "CODESYS", "Profiles",
+                "CODESYS V3.5 SP{} Patch {}.profile.xml".format(sp, patch),
             ),
         ],
         "Setup": {

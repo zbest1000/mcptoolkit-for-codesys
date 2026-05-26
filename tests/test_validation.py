@@ -1,6 +1,7 @@
 """Tests for mcptoolkit_for_codesys._validation."""
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import pytest
@@ -143,5 +144,7 @@ class TestValidateWorkdir:
             validate_workdir("relative/path")
 
     def test_root_rejected(self):
+        # The filesystem root is OS-specific: "C:\" on Windows, "/" on POSIX.
+        root = "C:\\" if os.name == "nt" else "/"
         with pytest.raises(ValidationError, match="root"):
-            validate_workdir("C:\\")
+            validate_workdir(root)
