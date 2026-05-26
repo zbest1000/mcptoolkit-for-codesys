@@ -30,12 +30,11 @@ You need three things installed on the **same Windows PC**:
 
 ## Step 1 — Download the server
 
-If you have **Git** installed, open PowerShell and run (replace the URL with
-your repository's address):
+If you have **Git** installed, open PowerShell and run:
 
 ```
 cd $env:USERPROFILE
-git clone https://github.com/YOUR-USERNAME/mcptoolkit-for-codesys.git
+git clone https://github.com/zbest1000/mcptoolkit-for-codesys.git
 ```
 
 No Git? On the GitHub page click the green **Code** button → **Download ZIP**,
