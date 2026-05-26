@@ -1,5 +1,14 @@
 # Changes
 
+## [Unreleased]
+
+- Docs: a plain-English `docs/` set (concepts, the dashboard watch page,
+  reliability, configuration, security), a remote-over-SSH guide (`REMOTE.md`)
+  with launcher templates under `examples/remote-ssh/`, and a `RELEASING.md`
+  process guide.
+- CI: a `release.yml` workflow that builds and publishes the wheel + sdist when a
+  `v*` tag is pushed.
+
 ## 0.2.1
 
 - **MCP tool annotations.** Every tool now reports `readOnlyHint` /
