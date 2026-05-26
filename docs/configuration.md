@@ -19,8 +19,19 @@ These go in the `args` list of your Claude Desktop config (see the
 ## Environment variables
 
 Set these in the `env` block of your Claude Desktop config, or in your shell.
-Each `MCPTOOLKIT_*` variable mirrors an argument above; the argument wins if both
-are set.
+The `MCPTOOLKIT_*` variables aren't redundant with the flags above — they're
+**layered**:
+
+```
+command-line flag   >   environment variable   >   built-in default
+```
+
+Reach for a **flag** when you want an explicit, per-launch setting; reach for an
+**environment variable** for an ambient one you set once (for example, export
+`MCPTOOLKIT_SP=22` in your shell, then override it for a single run with
+`--sp 20`). And some settings are **env-only on purpose** — the CODESYS install
+paths below are per-machine config you set once, the dev gate is a machine-level
+debug switch, and credential *references* keep secrets out of the logged `args`.
 
 | Variable | What it does |
 |---|---|

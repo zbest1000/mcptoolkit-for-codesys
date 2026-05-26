@@ -86,9 +86,37 @@ tool surface:
                        (projects, online, system, ...)
 ```
 
-The host process supervises a single long-lived `CODESYS.exe` running
-`watcher.py`. The watcher runs on the IDE's primary UI thread, yields via
-`system.delay()`, and never touches `System.Threading`.
+**Two programs, two Pythons.** CODESYS can only be scripted from *inside* its own
+embedded Python (IronPython 2.7), which is too old to speak modern MCP. So a
+modern-Python **server** handles Claude, and a small **watcher** running inside
+CODESYS does the actual work. The server supervises one long-lived `CODESYS.exe`
+running `watcher.py` on the IDE's primary UI thread (it yields via
+`system.delay()` and never touches `System.Threading` — the only model that stays
+stable on SP21.5+).
+
+**The `<workdir>` is the channel, not a scratch folder.** The two halves can't
+call each other directly, so they exchange messages as files in one shared
+folder: the server drops a request in `commands/`, the watcher writes the answer
+to `results/`. The same folder also holds `watcher.ready` (a PID marker), a
+`watcher.heartbeat`, a `STOP` sentinel, the staged `watcher.py`, and the log.
+Three things follow:
+
+- **Both halves must point at the same workdir**, or they can't talk to each
+  other. (This is why a remote SSH setup pins `--workdir` on both sides.)
+- **It is the trust boundary.** File IPC has no authentication — whoever can write
+  into `commands/` can drive CODESYS. Keep it a private, per-user folder; never a
+  shared or network path (see [Security model](#security-model)).
+- **One watcher per workdir.** Two IDEs sharing one folder would grab each other's
+  messages and corrupt results, so a second server *adopts* a running watcher
+  rather than spawning a rival (see [Reliability](#reliability--modal-dialog-defense)).
+
+Why files instead of a socket? IronPython 2.7's networking is fragile and the IDE
+can freeze on a dialog; files survive both, and each write is atomic (`*.tmp` +
+rename) so a half-written message is never read.
+
+**Startup is lazy.** CODESYS takes 30–90 s to open, so the server spawns it on the
+*first tool call*, not at launch — otherwise Claude's ~60 s connect timeout would
+trip every time. The first tool call is slow; the rest are fast.
 
 ## Install
 
@@ -155,9 +183,22 @@ Add to `%APPDATA%\Claude\claude_desktop_config.json`:
 | `--headless` | off (IDE visible) | Launch CODESYS with `--noUI`. |
 | `--log-level <lvl>` | `INFO` | `DEBUG` / `INFO` / `WARNING` / `ERROR`. |
 
-Each argument also has an `MCPTOOLKIT_*` environment-variable equivalent (see
-[Environment variables](#environment-variables) below and
-[docs/configuration.md](docs/configuration.md) for the full reference).
+**Args vs. environment variables — which wins.** Every flag above also has an
+`MCPTOOLKIT_*` env-var equivalent, and you can set it in the config's `args` list
+*or* its `env` block. They aren't redundant — they're layered:
+
+```
+command-line flag   >   environment variable   >   built-in default
+```
+
+Use an **argument** for an explicit, per-launch setting; use an **environment
+variable** for an ambient one you set once. A few settings are **env-only on
+purpose**: `CODESYS_EXE` / `CODESYS_PROFILE` (this machine's install paths — set
+once, not per launch), the `MCPTOOLKIT_DEV` debug gate, and credential
+*references* (`username_env` / `password_env`) that keep secrets out of `args`,
+which are recorded in the conversation transcript. Full reference:
+[Environment variables](#environment-variables) and
+[docs/configuration.md](docs/configuration.md).
 
 The first call from Claude spawns the IDE (visible by default; pass
 `--headless` to launch with `--noUI`).
@@ -166,7 +207,41 @@ The first call from Claude spawns the IDE (visible by default; pass
 on another PC over SSH — and still watch the IDE on that PC's screen while Claude
 operates it. See [REMOTE.md](REMOTE.md).
 
+## Example: a first session
+
+You drive everything through Claude in plain language — you never call tools
+directly. For example:
+
+> **You:** Create a standard CODESYS project at `C:\work\demo.project`, add a
+> function block `Motor` with a `Start` method, build it, and tell me whether it
+> compiles.
+
+Claude calls, in order:
+
+1. `codesys.project.create_standard` — copies the shipped Standard template
+   (Device + Application + MainTask + PLC_PRG) to that path and opens it.
+2. `codesys.pou.create` — adds the `Motor` function block.
+3. `codesys.pou.create_method` — adds `Start` on `Motor`.
+4. `codesys.build.build` — compiles and returns structured errors/warnings.
+
+…then summarizes the result for you. The **first** call opens CODESYS
+(~60–90 s); the rest are quick, and you can watch each step happen in the IDE
+window. More things you can just ask for:
+
+- *"Open `C:\plant\line2.project` and list any missing libraries."* →
+  `project.open` (which auto-attaches a diagnosis) + `library.diagnose`.
+- *"Log into the PLC, start it, and read `PLC_PRG.iCounter`."* → `online.login`
+  → `online.start` (Claude must pass `confirm: true` — it actuates equipment) →
+  `online.read`.
+- *"Export the project as a git-friendly source tree under `.\src`."* →
+  `project.mirror_export`.
+
+The full list of 82 tools is in [Tools](#tools) below.
+
 ## Environment variables
+
+Set these in the config's `env` block or your shell. A command-line flag
+overrides its env-var equivalent (see the precedence note above).
 
 | Variable | Purpose |
 |---|---|
