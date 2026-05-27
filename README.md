@@ -1,30 +1,60 @@
+<div align="center">
+
 # mcptoolkit-for-codesys
 
-A Model Context Protocol server that drives the **CODESYS V3.5 SP22** IDE
-through its Python ScriptEngine. Lets Claude (or any MCP client) open projects,
-create POUs/DUTs/GVLs with methods and properties, build, add/version devices,
-manage libraries, and log into a live PLC to read/write/force variables.
+**Drive the CODESYS V3.5 SP22 PLC IDE from Claude — a Model Context Protocol server.**
 
-> **New to this? Start with the [Setup Guide](SETUP.md)** — a plain-English,
+[![tests](https://github.com/zbest1000/mcptoolkit-for-codesys/actions/workflows/test.yml/badge.svg)](https://github.com/zbest1000/mcptoolkit-for-codesys/actions/workflows/test.yml)
+[![release](https://img.shields.io/github/v/release/zbest1000/mcptoolkit-for-codesys)](https://github.com/zbest1000/mcptoolkit-for-codesys/releases)
+[![license](https://img.shields.io/github/license/zbest1000/mcptoolkit-for-codesys)](LICENSE)
+![python](https://img.shields.io/badge/python-3.11%2B-blue)
+
+</div>
+
+A Model Context Protocol server that drives the **CODESYS V3.5 SP22** IDE through
+its Python ScriptEngine. It lets Claude (or any MCP client) open projects, create
+POUs/DUTs/GVLs with methods and properties, build, add and version devices, manage
+libraries, and log into a live PLC to read, write, and force variables.
+
+> **New to this?** Start with the **[Setup Guide](SETUP.md)** — a plain-English,
 > step-by-step install that assumes no programming experience.
 >
-> **Want to understand how it works?** The [`docs/`](docs/) folder explains each
-> part in plain language — [concepts](docs/concepts.md), the
+> **Want to understand how it works?** The **[`docs/`](docs/)** folder explains
+> each part in plain language: [concepts](docs/concepts.md), the
 > [watch page](docs/dashboard.md), [reliability](docs/reliability.md),
 > [configuration](docs/configuration.md), and [security](docs/security.md).
 
-Status: **0.2.2 — verified end-to-end on SP22 Patch 1.** Project lifecycle,
-POU/DUT/GVL + methods/properties, build, device add/update, library
+**Status — 0.2.2, verified end-to-end on SP22 Patch 1.** Project lifecycle,
+POU/DUT/GVL with methods/properties, build, device add/update, library
 add/diagnose/auto-remediate, and the **full online cycle** (login → run → read
-live values → write → stop → logout) all work against a real soft PLC.
-**82 tools** across 10 areas; **199 host unit tests + 6 live integration tests**
-passing — the live suite drives a real CODESYS V3.5 SP22 Patch 1 instance
-(project lifecycle, device update/parameters, symbol config, task config,
-variable editing, library.update, online state, hang-proof diagnose) and is the
-basis for the "tested on SP22" claim. Run it yourself with
-`MCPTOOLKIT_LIVE=1 pytest tests/integration`. See
-[`CHANGES.md`](CHANGES.md) for the full changelog. Should run on SP19+ where the
-scripting API matches, but only SP22 has been exercised.
+live values → write → stop → logout) all work against a real soft PLC. **82
+tools** across 10 areas; **199 host unit tests + 6 live integration tests** pass
+(the live suite drives a real SP22 Patch 1 instance — run it with
+`MCPTOOLKIT_LIVE=1 pytest tests/integration`). Should run on SP19+ where the
+scripting API matches, but only SP22 has been exercised. See
+[`CHANGES.md`](CHANGES.md) for the changelog.
+
+## Contents
+
+- [Feature highlights](#feature-highlights)
+- [Why another CODESYS MCP](#why-another-codesys-mcp)
+- [How it works](#how-it-works)
+- [Install](#install)
+- [Configure Claude Desktop](#configure-claude-desktop)
+- [Example: a first session](#example-a-first-session)
+- [Remote access over SSH](#remote-access-over-ssh)
+- [Environment variables](#environment-variables)
+- [Reliability & modal-dialog defense](#reliability--modal-dialog-defense)
+- [Observability](#observability)
+- [Tools](#tools)
+- [Version control](#version-control)
+- [What's verified](#whats-verified)
+- [Known limitations](#known-limitations)
+- [Roadmap](#roadmap)
+- [Security model](#security-model)
+- [Architecture notes & gotchas](#architecture-notes--gotchas)
+- [Acknowledgements](#acknowledgements)
+- [License](#license)
 
 ## Feature highlights
 
@@ -347,6 +377,10 @@ Pair with `codesys.health` / `codesys.diagnose` for fast liveness probes:
 descriptions (returned by `list_tools`) carry the per-argument detail; this is
 the map.
 
+<details>
+<summary><b>Browse all 82 tools by area</b></summary>
+<br>
+
 ### Meta
 - `codesys.ping` — round-trip the watcher; returns IronPython version + registered ops.
 - `codesys.info` — which CODESYS install the host is driving.
@@ -550,6 +584,8 @@ rest walked as direct children), or `/leading/slash/forces/root/relative`.
    surface as build errors sourced from the device name, not the
    Library Manager. A device-side fix is on the roadmap.
 
+</details>
+
 ## Version control
 
 CODESYS's Git/SVN integration is a UI add-on and is **not exposed by the script
@@ -570,6 +606,10 @@ Verified: a `mirror_export` → `git init`/`add`/`commit` round-trip tracks the
 exported `.st` files as ordinary diffable source.
 
 ## What's verified
+
+<details>
+<summary><b>Expand the full end-to-end verification log</b></summary>
+<br>
 
 End-to-end against CODESYS V3.5 SP22 Patch 1 (`C:\Program Files\CODESYS 3.5.22.10`):
 
@@ -629,6 +669,8 @@ Reliability, verified by repeated restart cycles + the live integration suite:
   killed + respawned on the next call.
 - **Dialog guard** — auto-confirmed the storage-format-upgrade modal that
   `device.update` triggers, so the op completes unattended.
+
+</details>
 
 ## Known limitations
 
