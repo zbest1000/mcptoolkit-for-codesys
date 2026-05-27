@@ -614,103 +614,97 @@ exported `.st` files as ordinary diffable source.
 <summary><b>Expand the full end-to-end verification log</b></summary>
 <br>
 
-End-to-end against CODESYS V3.5 SP22 Patch 1 (`C:\Program Files\CODESYS 3.5.22.10`):
+Every claim below has been exercised against a real CODESYS V3.5 SP22 Patch 1
+install (`C:\Program Files\CODESYS 3.5.22.10`), not mocked.
 
-- Spine: spawn, watcher.ready handshake, MCP `initialize` + `tools/list`, lazy
-  spawn (no more 60s init timeout), script staging from UNC source to a local
-  workdir.
-- `codesys.ping` — round-trips with `pong: true`, ~5–18ms post-spawn. Pass
-  `verbose: true` to get the diagnostic block (injected globals + enum member
-  names per known enum).
-- `codesys.info` — host install summary, including patch number read from
-  `Setup.Version.Patch` (the previous code read from `Generation`, always 0).
-- `codesys.project.create_standard` — copies `Templates/Standard.project`,
-  opens it, returns the project summary. Replaces the bare `project.create`
-  for any compile-bearing workflow.
-- `codesys.project.tree` — walks the project to a configurable depth and
-  serializes name/guid/type/is_folder/children per node.
-- `codesys.pou.create` (Program/FB/Function) + `pou.create_folder` /
-  `pou.create_method` / `pou.create_property` — all create the right tree
-  nodes with the right type GUIDs. Properties auto-generate Get/Set
-  accessors.
-- `codesys.pou.set_text` / `get_text` — round-trips declaration and
-  implementation; the disambiguator now picks the textual POU over the
-  task-reference shadow when names collide.
-- `codesys.build.build` — runs the compile and returns
-  `{errors, warnings, messages}`. Each message is structured with
-  `severity` (error/warning/info/status), `text`, `prefix`, `number`
-  (error code), `source` (object name like `"PLC_PRG"`), and `position`
-  (e.g. `"Line 1, Column 1 (Impl)"`). On the demo machine, a freshly-
-  created Standard.project with broken ST in `PLC_PRG` correctly reports
-  31 errors + 1 warning including the parser errors at the right
-  position; fixing the ST drops the count to 16 (the remaining are
-  device-package errors — see Known Limitations).
+**Core and offline:**
 
-- `codesys.device.*` — `device.tree` lists nodes with versions; `device.add`
-  built a full `PLCWinNT (x64) → Ethernet → EtherNet/IP Scanner` chain;
-  `device.update` swapped/updated the PLC descriptor and took a Standard
-  project's build from 16/17 errors → **0** (the IoStandard pin fix).
-- `codesys.library.*` — `add`/`list_project` add and report references;
-  `diagnose` parses missing-library errors; `install_missing` auto-fixes
-  version pins; `repositories`/`create_repository`/`install` cover packaging.
+- **Spine** — process spawn, the `watcher.ready` handshake, MCP `initialize` +
+  `tools/list`, lazy spawn (no 60 s init timeout), and staging the watcher script
+  from a UNC source to a local workdir.
+- **`codesys.ping`** — round-trips with `pong: true` in ~5–18 ms once spawned;
+  `verbose: true` adds a diagnostic block (injected globals + enum members).
+- **`codesys.info`** — returns the host install summary, including the patch
+  number read from `Setup.Version.Patch`.
+- **`codesys.project.create_standard`** — copies `Templates/Standard.project`,
+  opens it, and returns a summary; the right starting point for anything that
+  needs to compile.
+- **`codesys.project.tree`** — walks the project to a given depth, serializing
+  name/guid/type/is_folder/children per node.
+- **POU authoring** — `pou.create` (Program/FB/Function), `create_folder`,
+  `create_method`, and `create_property` all produce the correct tree nodes and
+  type GUIDs, with Get/Set accessors auto-generated for properties;
+  `set_text`/`get_text` round-trip the declaration and implementation.
+- **`codesys.build.build`** — compiles and returns `{errors, warnings, messages}`,
+  each message structured with `severity`, `text`, `prefix`, `number`, `source`
+  (e.g. `"PLC_PRG"`), and `position` (e.g. `"Line 1, Column 1 (Impl)"`). A fresh
+  Standard.project with broken ST reported 31 errors + 1 warning at the right
+  positions; fixing the ST dropped that to 16 (the rest being device-package
+  errors — see [Known limitations](#known-limitations)).
+- **`codesys.device.*`** — `device.tree` lists nodes with versions; `device.add`
+  built a full `PLCWinNT (x64) → Ethernet → EtherNet/IP Scanner` chain; and
+  `device.update` re-pointed an outdated PLC descriptor, taking a Standard
+  project's build from 16–17 errors to **0** (the IoStandard pin fix).
+- **`codesys.library.*`** — `add`/`list_project` manage references, `diagnose`
+  parses missing-library errors, `install_missing` auto-fixes version pins, and
+  `repositories`/`create_repository`/`install` cover packaging.
 
-Verified end-to-end against the soft PLC (CODESYS Control Win V3 x64):
+**Online, against a CODESYS Control Win V3 x64 soft PLC:**
 
-- Online tools (`codesys.online.*`) — full cycle proven: `login` (with
-  user-supplied credentials) → `start` → `read` a live-incrementing counter →
-  `write` a variable that changed PLC behavior → `stop` → `logout`. Required a
-  one-time interactive comm-path setup in the IDE (gateway/target binding isn't
-  scriptable in the SP22 API); after that it's saved in the project and the
-  tools drive everything. The earlier `OnlineChangeOption` enum drift and the
-  app-resolution-by-GUID bug are fixed.
+- The full `codesys.online.*` cycle is proven end-to-end: `login` with
+  user-supplied credentials → `start` → `read` a live-incrementing counter →
+  `write` a value that changed the PLC's behavior → `stop` → `logout`. It needs
+  the comm path (gateway/target binding) set once in the IDE — that step isn't
+  scriptable in the SP22 API — after which it persists in the project and the
+  tools drive everything else.
 
-Reliability, verified by repeated restart cycles + the live integration suite:
+**Reliability, across repeated restart cycles and the live suite:**
 
-- **Process adoption** — a restarted host adopts the running watcher instead of
-  spawning a duplicate (no two-IDEs-on-one-workdir races).
-- **Hung-watcher recovery** — a stale heartbeat is detected and the watcher is
-  killed + respawned on the next call.
-- **Dialog guard** — auto-confirmed the storage-format-upgrade modal that
-  `device.update` triggers, so the op completes unattended.
+- **Process adoption** — a restarted host attaches to the running watcher instead
+  of spawning a duplicate, avoiding two-IDEs-on-one-workdir races.
+- **Hung-watcher recovery** — a stale heartbeat is detected, and the watcher is
+  killed and respawned on the next call.
+- **Dialog guard** — the storage-format-upgrade modal that `device.update` raises
+  is auto-confirmed, so the operation completes unattended.
 
 </details>
 
 ## Known limitations
 
-- **Standard.project ships an old device descriptor.** The CODESYS Standard
-  template instantiates `PLCWinNT` (CODESYS Control Win V3) at an old version
+- **The Standard template ships an outdated device descriptor.** CODESYS's
+  `Standard.project` instantiates `PLCWinNT` (Control Win V3) at an old version
   that pins an uninstalled `IoStandard 3.1.3.1`, so a fresh build reports
-  `"Device not installed to the system"` + a cascade of `"Unknown type:
-  'IoConfigTaskMap'"` etc. (~16 errors). **Fixed in-session** by
-  `codesys.device.update` (bump/swap the PLC to the installed version, which
-  re-points it at the current IoStandard) — build goes to 0. Only the legacy
-  PLCWinNT (device id `0000 0001`) lacks fieldbus slots; the x64 variant
-  (`0000 0004`) accepts the EtherNet/IP chain.
-- **Comm path isn't scriptable.** Gateway/target-node binding for online login
-  must be set once in the IDE per project (then it persists). See the Online
-  tools note.
-- _legacy device-package note (superseded by `device.update`):_ if a device
-  package is genuinely not installed at all, install it via
-  `codesys.system.install_package` (APInstaller) — same errors appear opening
-  the project in the GUI on a clean machine.
-- **`pou.create_folder` summary edge case**: `parent.create_folder(name)`
-  on SP22 returns None instead of the folder object. The handler now
-  re-queries the parent's children to recover the folder for the
-  response payload, but on the off-chance the re-query fails the result
-  is `{created: True, name, note: "handle not recoverable"}`.
-- **Packaged-app workdir redirection**: Claude Desktop ships as a
-  Microsoft Store packaged app. The `MCPTOOLKIT_WORKDIR` env var value
-  gets app-container redirected to
+  `"Device not installed to the system"` and a cascade of `"Unknown type:
+  'IoConfigTaskMap'"` errors (~16 in total). The fix is in-session:
+  `codesys.device.update` bumps the PLC to the installed version, re-points it at
+  the current IoStandard, and the build goes to 0. (The legacy PLCWinNT, device id
+  `0000 0001`, has no fieldbus slots; the x64 variant `0000 0004` accepts the
+  EtherNet/IP chain.)
+- **The comm path can't be scripted.** Gateway/target-node binding for online
+  login has to be set once in the IDE per project; after that it persists and the
+  online tools handle everything else.
+- **A genuinely missing device package needs a manual install.** If a device
+  package isn't installed at all — the same errors appear when opening the project
+  in the GUI on a clean machine — install it with `codesys.system.install_package`
+  via APInstaller. (For the Standard-template case above, `device.update` is the
+  simpler fix.)
+- **`pou.create_folder` doesn't always return a handle.** On SP22,
+  `parent.create_folder(name)` returns `None` instead of the new folder, so the
+  handler re-queries the parent's children to recover it. If even that fails, the
+  response is `{created: true, name, note: "handle not recoverable"}` — the folder
+  is still created either way.
+- **The workdir is redirected under the Store-app Claude Desktop.** Because Claude
+  Desktop is a Microsoft Store (packaged) app, a `MCPTOOLKIT_WORKDIR` you set is
+  app-container-redirected to
   `%LOCALAPPDATA%\Packages\Claude_pzs8sxrjxfjjc\LocalCache\Local\mcptoolkit-for-codesys\`
-  instead of the literal path you set. Functionally fine — both the
-  Python server and CODESYS see the same redirected location — but if
-  you go looking for `commands/results/` files in the configured path,
-  they won't be there.
-- **`_eval` and `_introspect` watcher ops** are development diagnostics, not
-  exposed as MCP tools and **OFF by default** — they register only when
-  `MCPTOOLKIT_DEV=1` or a `<workdir>/dev.flag` exists. They execute arbitrary
-  IronPython in the IDE process; see the Security model section. Keep them
-  disabled outside development.
+  rather than the literal path. It works — both the server and CODESYS see the
+  same redirected folder — but the `commands/`/`results/` files won't be where you
+  typed. Launching outside the Store app (for example over SSH) avoids the redirect.
+- **`_eval` / `_introspect` are off by default.** These development-only watcher
+  ops run arbitrary IronPython inside the IDE process, so they are never exposed as
+  MCP tools and register only when `MCPTOOLKIT_DEV=1` or a `<workdir>/dev.flag`
+  exists. Leave them off outside development — see
+  [Security model](#security-model).
 
 ## Roadmap
 
