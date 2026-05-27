@@ -24,15 +24,14 @@ libraries, and log into a live PLC to read, write, and force variables.
 > [watch page](docs/dashboard.md), [reliability](docs/reliability.md),
 > [configuration](docs/configuration.md), and [security](docs/security.md).
 
-**Status — 0.2.2, verified end-to-end on SP22 Patch 1.** Project lifecycle,
-POU/DUT/GVL with methods/properties, build, device add/update, library
-add/diagnose/auto-remediate, and the **full online cycle** (login → run → read
-live values → write → stop → logout) all work against a real soft PLC. **82
-tools** across 10 areas; **199 host unit tests + 6 live integration tests** pass
-(the live suite drives a real SP22 Patch 1 instance — run it with
-`MCPTOOLKIT_LIVE=1 pytest tests/integration`). Should run on SP19+ where the
-scripting API matches, but only SP22 has been exercised. See
-[`CHANGES.md`](CHANGES.md) for the changelog.
+**Status — v0.2.2, verified end-to-end on a real CODESYS V3.5 SP22 Patch 1
+instance.** Everything from creating a project through the full online cycle
+(login → run → read live values → write → stop → logout) works against a running
+soft PLC, driven through the server's **82 tools**. It is covered by **199 host
+unit tests plus 6 live integration tests** — you can run the live ones yourself
+with `MCPTOOLKIT_LIVE=1 pytest tests/integration`. It should also work on SP19 and
+up wherever the scripting API matches, though only SP22 has been exercised. The
+full history is in [`CHANGES.md`](CHANGES.md).
 
 ## Contents
 
@@ -81,22 +80,26 @@ scripting API matches, but only SP22 has been exercised. See
 
 ## Why another CODESYS MCP
 
-Earlier community CODESYS MCP projects were the inspiration for this one (see
-[Acknowledgements](#acknowledgements)). It's a from-scratch implementation that
-prioritises robustness on current service packs and a broad, introspectable
-tool surface:
+Earlier community CODESYS MCP projects inspired this one (see
+[Acknowledgements](#acknowledgements)), but it is a from-scratch implementation
+built around a few deliberate engineering choices that keep it stable on current
+service packs:
 
-- **Single-threaded primary-thread loop** (no `clr.AddReference` for threading,
-  no `execute_on_primary_thread`) — the only design that works on SP21.5+.
-- **Atomic file-based JSON IPC** (`commands/` + `results/`, `*.tmp` + rename).
-- **Pydantic-validated wire contracts** on the host side.
-- **Broad tool surface** — 82 tools spanning project, POU/DUT/GVL, build,
-  device, library, online, symbol config, task config, and system/installer.
-- **Survives unattended operation** — modal-dialog defense, hung-watcher
-  recovery, and process adoption (see Reliability below).
-- **Security-conscious** — documented trust model, user-supplied credentials,
-  confirm-gated physical ops (see Security model below).
-- Pluggable handler modules — each one is a single self-registering Python file.
+- **A single-threaded loop on the IDE's primary thread** — no `clr.AddReference`
+  for threading and no `execute_on_primary_thread` (removed in SP21.5). It is the
+  only model that stays reliable on recent service packs.
+- **Atomic file-based IPC** rather than a socket — requests and results are
+  exchanged as files (written `*.tmp` then renamed), so it survives a frozen IDE
+  and never reads a half-written message.
+- **Pydantic-validated wire contracts** on the host side, so a malformed call
+  fails cleanly before it ever reaches CODESYS.
+- **Self-registering handler modules** — each tool group is one small Python file
+  that registers itself, which keeps the 82-tool surface easy to extend.
+
+Breadth (82 tools across 10 areas), dependable unattended operation (see
+[Reliability](#reliability--modal-dialog-defense)), and a documented safety model
+(see [Security model](#security-model)) round it out — each covered in its own
+section below rather than repeated here.
 
 ## How it works
 
