@@ -105,7 +105,7 @@ class ToolSpec:
 
     def to_mcp_tool(self) -> Tool:
         return Tool(
-            name=self.name,
+            name=self.name.replace(".", "_"),
             description=self.description,
             inputSchema=self.input_schema,
             annotations=annotations_for(self.name),
