@@ -316,6 +316,7 @@ class CodesysInstall:
     profile: Path          # <install_dir>\Profiles\CODESYS V3.5 SP22.profile.xml
     sp: int                # service-pack number (e.g. 22)
     patch: int             # patch number (e.g. 0)
+    additional_folder: Path | None = None
 
     def profile_name(self) -> str:
         """Name as expected by `--profile=...`. Stripped of `.profile.xml`."""
@@ -336,6 +337,11 @@ def _parse_installations(raw: str) -> list[CodesysInstall]:
             continue
         install_path = Path(install_dir)
         exe = install_path / "Common" / "CODESYS.exe"
+        if not exe.exists() and entry.get("RootDirectory"):
+            root_path = Path(entry["RootDirectory"])
+            if (root_path / "Common" / "CODESYS.exe").exists():
+                install_path = root_path
+                exe = root_path / "Common" / "CODESYS.exe"
         if not exe.exists():
             continue
         # SP comes from "3.5.<sp>.<patch>" generation but the patch field there
@@ -354,6 +360,7 @@ def _parse_installations(raw: str) -> list[CodesysInstall]:
             patch = int(setup_ver.get("Patch") or 0)
         except (TypeError, ValueError):
             patch = 0
+        add_folder = Path(entry["InstallationPath"]) if entry.get("InstallationPath") else None
         out.append(
             CodesysInstall(
                 key=key,
@@ -363,6 +370,7 @@ def _parse_installations(raw: str) -> list[CodesysInstall]:
                 profile=Path(profiles[0]),
                 sp=sp,
                 patch=patch,
+                additional_folder=add_folder,
             )
         )
     return out
@@ -688,9 +696,13 @@ class WatcherManager:
         cmd: list[str] = [
             str(self.install.exe),
             f'--profile={self.install.profile_name()}',
+        ]
+        if self.install.additional_folder:
+            cmd.append(f'--additionalfolder={self.install.additional_folder}')
+        cmd.extend([
             f'--runscript={script_path}',
             f'--scriptargs={self.workdir}',
-        ]
+        ])
         if not self.show_ide:
             cmd.append("--noUI")
         return cmd
@@ -745,7 +757,7 @@ class WatcherManager:
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
             stdin=subprocess.DEVNULL,
-            cwd=str(self.workdir),
+            cwd=str(self.install.exe.parent),
         )
         wp = WatcherProcess(install=self.install, workdir=self.workdir, proc=proc)
         self._process = wp
