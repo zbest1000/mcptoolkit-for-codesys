@@ -13,6 +13,7 @@ Env vars:
     CODESYS_PROFILE       full path to .profile.xml (overrides discovery)
     MCPTOOLKIT_SP        prefer this SP number (e.g. 22)
     MCPTOOLKIT_HEADLESS  set "1" to launch CODESYS with --noUI
+    MCPTOOLKIT_STARTUP_TIMEOUT  seconds to wait for the watcher to come up
 """
 from __future__ import annotations
 
@@ -48,11 +49,61 @@ def _default_workdir() -> Path:
     return Path(tmp) / "mcptoolkit-for-codesys"
 
 
+DEFAULT_STARTUP_TIMEOUT_S = 90.0
+DEFAULT_HEADLESS_STARTUP_TIMEOUT_S = 180.0
+
+
+def _positive_float(raw: str) -> float:
+    """argparse type: a strictly positive number of seconds."""
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        raise argparse.ArgumentTypeError("must be a number of seconds")
+    if value <= 0:
+        raise argparse.ArgumentTypeError("must be greater than 0")
+    return value
+
+
+def _env_startup_timeout() -> float | None:
+    """The MCPTOOLKIT_STARTUP_TIMEOUT env var, if it holds a usable value."""
+    raw = os.environ.get("MCPTOOLKIT_STARTUP_TIMEOUT")
+    if not raw:
+        return None
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        return None
+    return value if value > 0 else None
+
+
+def _resolve_startup_timeout(explicit: float | None, headless: bool) -> float:
+    """How long to wait for CODESYS to bring the watcher up.
+
+    Precedence: command-line flag > environment variable > default. The
+    default depends on the mode: a headless start is slower, because the IDE
+    rebuilds the profile's device repository before the script engine runs
+    (measured ~110 s on a cold SP22 install, vs ~15 s once warm).
+    """
+    if explicit is not None:
+        return explicit
+    env = _env_startup_timeout()
+    if env is not None:
+        return env
+    return DEFAULT_HEADLESS_STARTUP_TIMEOUT_S if headless else DEFAULT_STARTUP_TIMEOUT_S
+
+
 def _build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="mcptoolkit-for-codesys")
     p.add_argument("--workdir", type=Path, default=_default_workdir())
     p.add_argument("--sp", type=int, default=None, help="Prefer this CODESYS SP (e.g. 22).")
     p.add_argument("--headless", action="store_true", help="Launch CODESYS with --noUI.")
+    p.add_argument(
+        "--startup-timeout",
+        type=_positive_float,
+        default=None,
+        help="Seconds to wait for CODESYS to start the watcher "
+             "(default: 90, or 180 with --headless).",
+    )
     p.add_argument(
         "--log-level",
         default=os.environ.get("MCPTOOLKIT_LOG", "INFO"),
@@ -84,10 +135,12 @@ async def _serve(args: argparse.Namespace) -> None:
         workdir=args.workdir,
         watcher_script=find_watcher_script(),
         install=install,
+        startup_timeout_s=_resolve_startup_timeout(args.startup_timeout, headless),
         show_ide=not headless,
     )
-    # Do NOT await manager.start() here. CODESYS startup takes 30-90s, and the
-    # MCP client's `initialize` request has a 60s timeout — blocking init on
+    # Do NOT await manager.start() here. CODESYS startup takes 30-180s (a cold
+    # headless start is the slowest), and the MCP client's `initialize` request
+    # has a 60s timeout — blocking init on
     # spawn would always trip the timeout. Spawn lazily on the first tool call
     # via manager.ensure_started() so initialize + list_tools return instantly.
 

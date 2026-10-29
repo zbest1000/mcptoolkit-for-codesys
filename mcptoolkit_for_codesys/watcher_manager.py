@@ -307,6 +307,23 @@ def dismiss_dialogs(pid: int, prefer: tuple[str, ...] = _SAFE_DIALOG_BUTTONS) ->
     return acted
 
 
+def _quote_value(value: str) -> str:
+    """Quote a command-line VALUE (never the whole `--flag=` token).
+
+    CODESYS parses the raw command line and expects the quoting to sit
+    around the value: `--profile="CODESYS V3.5 SP22 Patch 4"`. A value with
+    no whitespace is left alone; a value that already contains a quote is
+    rejected rather than silently mangled.
+    """
+    if '"' in value:
+        raise ValueError(f"command-line value contains a quote: {value!r}")
+    if not value:
+        return '""'
+    if any(ch in value for ch in " \t"):
+        return f'"{value}"'
+    return value
+
+
 @dataclass
 class CodesysInstall:
     key: str               # e.g. "CODESYS 3.5 SP22 (64 bit)"
@@ -683,17 +700,30 @@ class WatcherManager:
         except OSError:
             pass
 
-    def _build_command(self) -> list[str]:
+    def _build_command(self) -> str:
+        """Build the raw command line used to launch CODESYS.
+
+        This is a single string, NOT an argv list: CODESYS parses the raw
+        command line (GetCommandLine), so the quoting style is part of the
+        contract with the IDE.
+
+        Why not `subprocess.Popen([...])`: list2cmdline wraps a token in
+        quotes when it contains a space — so `--profile=CODESYS V3.5 SP22
+        Patch 4` becomes `"--profile=CODESYS V3.5 SP22 Patch 4"`, i.e. the
+        WHOLE token is quoted. CODESYS' profile lookup then fails, and in
+        `--noUI` mode it aborts with "it must specify a profile" (exit 1).
+        Quoting only the VALUE (`--profile="NAME"`) is what CODESYS expects.
+        """
         script_path = self._staged_watcher_script or self.watcher_script
-        cmd: list[str] = [
-            str(self.install.exe),
-            f'--profile={self.install.profile_name()}',
-            f'--runscript={script_path}',
-            f'--scriptargs={self.workdir}',
+        parts = [
+            _quote_value(str(self.install.exe)),
+            f"--profile={_quote_value(self.install.profile_name())}",
+            f"--runscript={_quote_value(str(script_path))}",
+            f"--scriptargs={_quote_value(str(self.workdir))}",
         ]
         if not self.show_ide:
-            cmd.append("--noUI")
-        return cmd
+            parts.append("--noUI")
+        return " ".join(parts)
 
     def _find_existing_watcher(self) -> WatcherProcess | None:
         """Return a handle to ANY watcher already owning this workdir, whether
@@ -739,7 +769,7 @@ class WatcherManager:
             await asyncio.sleep(1.0)
         self._prepare_workdir()
         cmd = self._build_command()
-        log.info("spawning watcher: %s", " ".join(cmd))
+        log.info("spawning watcher: %s", cmd)
         proc = subprocess.Popen(
             cmd,
             stdout=subprocess.DEVNULL,
@@ -766,6 +796,9 @@ class WatcherManager:
             await asyncio.sleep(0.25)
         raise TimeoutError(
             f"watcher did not signal ready within {self.startup_timeout_s:.0f}s. "
+            f"A cold start (especially with --headless) can take longer than "
+            f"that: raise it with --startup-timeout <seconds> or the "
+            f"MCPTOOLKIT_STARTUP_TIMEOUT environment variable. "
             f"Is the CODESYS UI waiting on a dialog?"
         )
 

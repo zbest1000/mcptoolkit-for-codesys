@@ -14,6 +14,7 @@ import pytest
 
 from mcptoolkit_for_codesys.watcher_manager import (
     CodesysInstall,
+    WatcherManager,
     _parse_installations,
     pick_install,
 )
@@ -171,3 +172,63 @@ class TestPickInstall:
                 explicit_exe=tmp_path / "nope.exe",
                 explicit_profile=tmp_path / "p.profile.xml",
             )
+
+
+class TestBuildCommand:
+    """The spawn command line is built by hand, not via subprocess' argv
+    quoting. CODESYS parses the RAW command line (GetCommandLine), so the
+    quoting style is part of the contract with the IDE.
+
+    Regression: `subprocess.list2cmdline` wraps the whole `--profile=NAME`
+    token in quotes when NAME contains a space. CODESYS then fails to resolve
+    the profile and, in `--noUI` mode, aborts with "it must specify a profile"
+    (exit code 1). Only the VALUE may be quoted: `--profile="NAME"`.
+    """
+
+    def _manager(self, tmp_path: Path, show_ide: bool = True, root: Path | None = None) -> "WatcherManager":
+        root = root or tmp_path
+        install = CodesysInstall(
+            key="CODESYS 3.5 SP22 (64 bit)",
+            version="Patch 4",
+            install_dir=root,
+            exe=root / "Common" / "CODESYS.exe",
+            profile=root / "Profiles" / "CODESYS V3.5 SP22 Patch 4.profile.xml",
+            sp=22,
+            patch=4,
+        )
+        mgr = WatcherManager(
+            workdir=tmp_path,
+            watcher_script=tmp_path / "watcher.py",
+            install=install,
+            show_ide=show_ide,
+        )
+        mgr._staged_watcher_script = tmp_path / "_scripts" / "watcher.py"
+        return mgr
+
+    def test_profile_quotes_only_the_value(self, tmp_path: Path):
+        cmd = self._manager(tmp_path)._build_command()
+        assert '--profile="CODESYS V3.5 SP22 Patch 4"' in cmd
+        # The whole token must NOT be wrapped — that is what breaks --noUI.
+        assert '"--profile=' not in cmd
+
+    def test_exe_path_with_spaces_is_quoted(self, tmp_path: Path):
+        root = tmp_path / "Program Files" / "CODESYS 3.5.22.40"
+        cmd = self._manager(tmp_path, root=root)._build_command()
+        assert cmd.startswith('"')
+
+    def test_paths_without_spaces_are_not_quoted(self, tmp_path: Path):
+        cmd = self._manager(tmp_path)._build_command()
+        assert "--runscript=" in cmd
+        assert '--runscript="' not in cmd
+
+    def test_headless_adds_noUI_flag(self, tmp_path: Path):
+        cmd = self._manager(tmp_path, show_ide=False)._build_command()
+        assert cmd.rstrip().endswith("--noUI")
+
+    def test_ui_mode_has_no_noUI_flag(self, tmp_path: Path):
+        cmd = self._manager(tmp_path, show_ide=True)._build_command()
+        assert "--noUI" not in cmd
+
+    def test_command_is_a_single_string(self, tmp_path: Path):
+        cmd = self._manager(tmp_path)._build_command()
+        assert isinstance(cmd, str)
