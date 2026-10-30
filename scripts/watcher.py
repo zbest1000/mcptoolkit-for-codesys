@@ -125,9 +125,9 @@ def _write_heartbeat(state, op=None, deadline_s=None, op_started_ts=None, force=
     }
     tmp = _HEARTBEAT_PATH + ".tmp"
     try:
-        f = open(tmp, "w")
+        f = open(tmp, "wb")
         try:
-            f.write(json.dumps(record))
+            f.write(_json_payload(record))
         finally:
             f.close()
         if os.path.exists(_HEARTBEAT_PATH):
@@ -160,26 +160,31 @@ def _write_log_line(level, msg, extra=None):
     """Append one JSON-encoded log record. Best-effort — never raises."""
     if _LOG_FILE_PATH is None:
         return
-    record = {
-        "ts": time.time(),
-        "level": level,
-        "pid": _LOG_PID,
-        "msg": str(msg),
-    }
-    if extra:
-        try:
-            record["extra"] = extra
-        except Exception:
-            pass
     try:
+        record = {
+            "ts": time.time(),
+            "level": level,
+            "pid": _LOG_PID,
+            # safe_text: an error message can carry non-ASCII characters, and
+            # the serializer must not choke on them — that would swallow the
+            # very log line that explains the bug.
+            "msg": _codesys_helpers.safe_text(msg),
+        }
+        if extra:
+            try:
+                record["extra"] = extra
+            except Exception:
+                pass
         _maybe_rotate()
-        f = open(_LOG_FILE_PATH, "a")
+        f = open(_LOG_FILE_PATH, "ab")
         try:
-            f.write(json.dumps(record) + "\n")
+            f.write(_json_payload(record) + b"\n")
         finally:
             f.close()
     except (IOError, OSError, ValueError, TypeError):
         # Don't let log failures take the watcher down.
+        pass
+    except Exception:
         pass
 
 
@@ -216,38 +221,28 @@ def log_error(msg, extra=None):
 def _read_workdir_from_args():
     candidates = [a for a in sys.argv if a and not a.endswith("watcher.py")]
     for c in candidates:
+        # Some CODESYS builds pass the argument as `--scriptargs=<path>`
+        # instead of a bare path.
+        if c.startswith("--scriptargs="):
+            c = c.split("=", 1)[1]
         if os.path.isabs(c) and not c.endswith(".py"):
             return c
     raise SystemExit("watcher: could not determine workdir from " + repr(sys.argv))
 
 
 def _atomic_write(path, payload):
-    tmp = path + ".tmp"
-    f = open(tmp, "w")
-    try:
-        f.write(payload)
-    finally:
-        f.close()
-    if os.path.exists(path):
-        os.remove(path)
-    os.rename(tmp, path)
+    """Write `payload` (UTF-8 bytes) to `path` atomically."""
+    return _codesys_helpers.atomic_write(path, payload)
+
+
+def _json_payload(obj):
+    """Serialize `obj` to a UTF-8 JSON payload."""
+    return _codesys_helpers.json_payload(obj)
 
 
 def _safe_read_json(path):
-    try:
-        f = open(path, "r")
-        try:
-            raw = f.read()
-        finally:
-            f.close()
-    except (IOError, OSError):
-        return None
-    if not raw:
-        return None
-    try:
-        return json.loads(raw)
-    except (ValueError, TypeError):
-        return None
+    """Read a UTF-8 JSON file (host -> watcher direction)."""
+    return _codesys_helpers.read_json(path)
 
 
 # ----------------------------------------------------------------------------
@@ -593,6 +588,46 @@ def _safe_result_filename(cmd_id):
     return s + ".json"
 
 
+def _find_non_text(obj, path="", out=None, limit=6):
+    """Collect leaves that json.dumps would reject.
+
+    A diagnostic helper: when the encoder rejects a result, this names the
+    offending value and its type instead of leaving a bare encoder error.
+
+    Non-ASCII TEXT is not an offender — the serializer uses ensure_ascii=False,
+    so accented characters are fine. They are reported separately (and
+    labelled as such) because they are the usual reason the encoder failed
+    before that fix.
+    """
+    if out is None:
+        out = []
+    if len(out) >= limit:
+        return out
+    try:
+        text_type = unicode  # noqa: F821 — IronPython 2.7 builtin
+    except NameError:
+        text_type = str
+    if isinstance(obj, dict):
+        for k in list(obj.keys()):
+            _find_non_text(k, path + "{key}", out, limit)
+            _find_non_text(obj[k], path + "[" + str(k) + "]", out, limit)
+        return out
+    if isinstance(obj, (list, tuple)):
+        for i in range(len(obj)):
+            _find_non_text(obj[i], path + "[" + str(i) + "]", out, limit)
+        return out
+    if obj is None or isinstance(obj, (bool, int, float)):
+        return out
+    if isinstance(obj, text_type):
+        try:
+            obj.encode("ascii")
+        except (UnicodeEncodeError, UnicodeDecodeError):
+            out.append((path, type(obj).__name__, "non-ASCII text (ok since ensure_ascii=False)"))
+        return out
+    out.append((path, type(obj).__name__, repr(obj)[:80]))
+    return out
+
+
 def _process_one(path, results_dir):
     cmd = _safe_read_json(path)
     if cmd is None:
@@ -634,23 +669,30 @@ def _process_one(path, results_dir):
     else:
         log_warn("op " + op_name + " " + status + " in " + str(elapsed) + "ms", extra)
     try:
-        _atomic_write(result_path, json.dumps(safe_result))
+        _atomic_write(result_path, _json_payload(safe_result))
     except (IOError, OSError):
         log_error("failed to write result for id=" + cmd_id)
     except (TypeError, ValueError) as exc:
-        log_error("json encode failed for id=" + cmd_id + ": " + str(exc))
+        log_error(
+            "json encode failed for id=" + cmd_id + ": " + repr(exc)
+            + " | offenders: " + repr(_find_non_text(safe_result))
+        )
         # Last-ditch: write a synthetic error envelope so the caller doesn't
-        # hang waiting for a result file that never appears.
+        # hang waiting for a result file that never appears. The message must
+        # be text-safe: embedding the offending bytes here would make THIS
+        # json.dumps fail too, and the caller would hang all the same.
         fallback = {
             "id": cmd_id,
             "status": "error",
             "data": {},
-            "error": "result was not JSON-serializable: " + str(exc),
+            "error": _codesys_helpers.safe_text(
+                "result was not JSON-serializable: " + repr(exc)
+            ),
             "error_kind": "JSONEncodeError",
             "elapsed_ms": 0,
         }
         try:
-            _atomic_write(result_path, json.dumps(fallback))
+            _atomic_write(result_path, _json_payload(fallback))
         except Exception:
             pass
 
@@ -675,7 +717,7 @@ def main():
     try:
         _atomic_write(
             os.path.join(workdir, "watcher.ready"),
-            json.dumps({
+            _json_payload({
                 "pid": os.getpid() if hasattr(os, "getpid") else None,
                 "ts": time.time(),
                 "ops": _registry.names(),

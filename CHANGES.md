@@ -1,5 +1,28 @@
 # Changes
 
+## [Unreleased]
+
+- **`--headless` works on Windows.** CODESYS parses the *raw* command line, not
+  the CRT argv, so the old argv-list launch wrapped the whole
+  `--profile=CODESYS V3.5 SP22 Patch 4` token in quotes; CODESYS could not
+  resolve the profile and, in `--noUI` mode, aborted with "it must specify a
+  profile" (exit 1). The command line is now built by hand, quoting only the
+  value (`--profile="..."`).
+- **Non-ASCII characters no longer break the IPC.** In IronPython 2.7 `str` and
+  `unicode` are the same type and `json.dumps` decodes every string as UTF-8
+  before escaping it, so the first non-ASCII character (a Spanish device
+  description, say) raised `UnicodeDecodeError` - and the "last-ditch" error
+  envelope embedded the same bytes, so it failed too and the caller hung for
+  the full timeout with no result. Both directions of the host/watcher file
+  exchange are UTF-8 now: the watcher reads command files as UTF-8 (it used to
+  decode them with the ANSI code page, silently corrupting every accented
+  character in the arguments) and writes results, `watcher.ready`, the
+  heartbeat and the log as UTF-8.
+- **`--startup-timeout` / `MCPTOOLKIT_STARTUP_TIMEOUT`.** How long to wait for
+  CODESYS to bring the watcher up. The default is 90 s, or 180 s with
+  `--headless` - a cold headless start was measured at ~110 s, because the IDE
+  rebuilds the profile's device repository before the script engine runs.
+
 ## 0.2.2
 
 Documentation, release tooling, and CI. No runtime/behavior change.

@@ -214,6 +214,7 @@ Add to `%APPDATA%\Claude\claude_desktop_config.json`:
 | `--workdir <dir>` | `%TEMP%\mcptoolkit-for-codesys` | The IPC mailbox folder (`commands/` + `results/`). |
 | `--sp <n>` | highest installed | Pin a CODESYS service pack, e.g. `--sp 22`. |
 | `--headless` | off (IDE visible) | Launch CODESYS with `--noUI`. |
+| `--startup-timeout <s>` | `90` (`180` with `--headless`) | How long to wait for CODESYS to bring the watcher up. A cold headless start was measured at ~110 s. |
 | `--log-level <lvl>` | `INFO` | `DEBUG` / `INFO` / `WARNING` / `ERROR`. |
 
 **Args vs. environment variables — which wins.** Every flag above also has an
@@ -321,6 +322,7 @@ overrides its env-var equivalent (see the precedence note above).
 | `CODESYS_PROFILE` | Required when `CODESYS_EXE` is set; path to a `.profile.xml`. |
 | `MCPTOOLKIT_SP` | Prefer this CODESYS SP (e.g. `22`). |
 | `MCPTOOLKIT_HEADLESS` | `1` to launch with `--noUI`. |
+| `MCPTOOLKIT_STARTUP_TIMEOUT` | Seconds to wait for the watcher to come up. Raise it if the first CODESYS start after a reboot times out. |
 | `MCPTOOLKIT_LOG` | `DEBUG` / `INFO` / `WARNING` / `ERROR`. |
 | `MCPTOOLKIT_DEV` | Set to `1` to register the `_introspect` and `_eval` diagnostic ops in the watcher. These are NOT exposed as MCP tools — they're callable via direct file IPC into `<workdir>/commands/` — but `_eval` evaluates arbitrary IronPython in the watcher's namespace, so it's off by default. Useful for development/debugging API drift. Alternative: drop a sentinel file at `<workdir>/dev.flag` (same effect, no env-var needed). |
 

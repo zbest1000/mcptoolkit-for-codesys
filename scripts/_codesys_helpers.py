@@ -12,7 +12,15 @@ watcher.py calls `register_injected(globals())` and `_g` looks names up
 there first.
 """
 
-import __builtin__ as _b
+import codecs
+import json
+import locale
+import os
+
+try:
+    import __builtin__ as _b
+except ImportError:  # CPython 3 — lets the host-side tests import this module
+    import builtins as _b
 
 # Populated by watcher.py at startup via register_injected(globals()).
 _INJECTED = {}
@@ -53,6 +61,133 @@ def list_injected():
 # JSON-serialization safety
 # ---------------------------------------------------------------------------
 
+# IronPython 2.7 has two string types: `str` (bytes) and `unicode` (text).
+# CPython 3 has only `str` (text) plus `bytes`. Resolve both once.
+try:
+    _TEXT_TYPE = unicode  # noqa: F821 — IronPython 2.7 builtin
+except NameError:
+    _TEXT_TYPE = str
+
+try:
+    _BINARY_TYPE = bytes
+except NameError:  # pragma: no cover — py2 always has bytes
+    _BINARY_TYPE = str
+
+
+def _locale_encoding():
+    """The process ANSI code page (cp1252 on a Spanish Windows)."""
+    try:
+        enc = locale.getpreferredencoding(False)
+    except Exception:
+        enc = ""
+    return enc or "latin-1"
+
+
+def safe_text(value):
+    """Return a string that survives a JSON round-trip.
+
+    On CPython this normalizes `bytes` to text. On IronPython 2.7 `str` and
+    `unicode` are the SAME type (both are System.String) while `bytes` is a
+    distinct type, so bytes still need decoding and text is left alone.
+
+    The real protection for non-ASCII characters is the serializer —
+    `json_payload` below dumps with ensure_ascii=False and writes UTF-8.
+    Without that, IronPython's json.dumps decodes every string as UTF-8 and
+    raises UnicodeDecodeError on the first non-ASCII character, silently
+    killing the whole response.
+    """
+    if isinstance(value, _TEXT_TYPE):
+        return value
+    if isinstance(value, _BINARY_TYPE):
+        try:
+            return value.decode("utf-8")
+        except UnicodeDecodeError:
+            pass
+        for enc in (_locale_encoding(), "latin-1"):
+            try:
+                return value.decode(enc, "replace")
+            except (LookupError, UnicodeDecodeError):
+                continue
+        return repr(value)
+    try:
+        return str(value)
+    except Exception:
+        return repr(value)
+
+
+# ---------------------------------------------------------------------------
+# File / JSON plumbing
+# ---------------------------------------------------------------------------
+#
+# ENCODING CONTRACT (host <-> watcher):
+#   host -> watcher : UTF-8   (commands/*.json)
+#   watcher -> host : UTF-8   (results/*.json, watcher.ready, watcher.heartbeat)
+#   log             : UTF-8   (log/watcher.log)
+#
+# The IronPython 2.7 facts that break this contract if you ignore them:
+#   - `str is unicode` (both are System.String), but `bytes is not str`.
+#   - `open(path, "r")` decodes with the process ANSI code page (cp1252 on a
+#     Spanish Windows) — NOT UTF-8. Reading a host-written command file that
+#     way silently mangles every accented character in the arguments.
+#   - `json.dumps(..., ensure_ascii=True)` (the default) decodes every string
+#     as UTF-8 before escaping it, so the first non-ASCII character raises
+#     UnicodeDecodeError and the whole response is lost.
+#   - `str.encode("utf-8")` returns a `str`, not `bytes` — so the payload is
+#     built with `bytes(text, "utf-8")`, which is real bytes on both runtimes.
+
+
+def json_payload(obj):
+    """Serialize `obj` to a UTF-8 JSON payload (real bytes on both runtimes)."""
+    text = json.dumps(obj, ensure_ascii=False)
+    if isinstance(text, _BINARY_TYPE) and not isinstance(text, _TEXT_TYPE):
+        return text
+    try:
+        return bytes(text, "utf-8")
+    except UnicodeEncodeError:
+        # Lone surrogates (a non-BMP character that JSON split into a pair).
+        # Drop them instead of losing the whole response.
+        return bytes(text.encode("utf-8", "replace"), "utf-8")
+
+
+def atomic_write(path, payload):
+    """Write `payload` (UTF-8 bytes) to `path` atomically.
+
+    The payload is written verbatim in binary mode. Re-encoding here would
+    double-encode the bytes.
+    """
+    tmp = path + ".tmp"
+    f = open(tmp, "wb")
+    try:
+        f.write(payload)
+    finally:
+        f.close()
+    if os.path.exists(path):
+        os.remove(path)
+    os.rename(tmp, path)
+
+
+def read_json(path):
+    """Read a UTF-8 JSON file. Returns None on any failure.
+
+    MUST decode as UTF-8: the host writes command files as UTF-8, and
+    `open(path, "r")` on IronPython decodes with the ANSI code page, which
+    silently corrupts accented characters in the arguments.
+    """
+    try:
+        f = codecs.open(path, "r", "utf-8")
+        try:
+            raw = f.read()
+        finally:
+            f.close()
+    except (IOError, OSError):
+        return None
+    if not raw:
+        return None
+    try:
+        return json.loads(raw)
+    except (ValueError, TypeError):
+        return None
+
 
 def coerce_for_json(value):
     """Recursively coerce IronPython-isms into json-serializable Python.
@@ -70,7 +205,7 @@ def coerce_for_json(value):
     # Fast path for cheap immutable types.
     if value is None or isinstance(value, bool):
         return value
-    if isinstance(value, (int, float, str)):
+    if isinstance(value, (int, float)):
         return value
     # IronPython 2.7 `long` — not the same isinstance class on .NET hosts; the
     # int branch above catches CPython longs. Try a numeric cast.
@@ -81,14 +216,21 @@ def coerce_for_json(value):
     except NameError:
         # CPython 3 — `long` doesn't exist. The int branch above handled it.
         pass
+    # Strings: in IronPython `str` and `unicode` are the SAME type (both are
+    # System.String), so there is no byte/text distinction to act on here —
+    # the serializer (watcher._json_payload) is what keeps non-ASCII
+    # characters from killing the response. safe_text normalizes them anyway.
+    if isinstance(value, _TEXT_TYPE) or isinstance(value, _BINARY_TYPE):
+        return safe_text(value)
     if isinstance(value, dict):
         return dict((k, coerce_for_json(v)) for k, v in value.items())
     if isinstance(value, (list, tuple)):
         return [coerce_for_json(v) for v in value]
     # Unknown CLR / COM / opaque object — render to string so the LLM sees
-    # something rather than a JSON encode error.
+    # something rather than a JSON encode error. `str()` on a CLR object gives
+    # ANSI bytes in IronPython, so run it through safe_text as well.
     try:
-        return str(value)
+        return safe_text(str(value))
     except Exception:
         return repr(value)
 
